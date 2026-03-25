@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import "./App.css";
-import {
-  createEmptyBoard,
-  evaluateBoard,
-  getNextPlayer,
-} from "./gameRules";
+import { createEmptyBoard, evaluateBoard, getNextPlayer } from "./gameRules";
+import Board from "./components/Board";
+import Controls from "./components/Controls";
+import ScoreBoard from "./components/ScoreBoard";
+import Status from "./components/Status";
 
 // PUBLIC_INTERFACE
 function App() {
@@ -25,6 +25,8 @@ function App() {
 
   const evaluation = useMemo(() => evaluateBoard(board), [board]);
   const { status, winner, winningLine } = evaluation;
+
+  const isLocked = status !== "in_progress";
 
   const statusText = useMemo(() => {
     if (status === "win") return `Winner: ${winner}`;
@@ -57,7 +59,7 @@ function App() {
    * @param {number} idx
    */
   const handleSquareClick = (idx) => {
-    if (status !== "in_progress") return;
+    if (isLocked) return;
     if (board[idx] !== null) return;
 
     setBoard((prev) => {
@@ -103,9 +105,8 @@ function App() {
             <button
               className="btn btn-ghost"
               onClick={toggleTheme}
-              aria-label={`Switch to ${
-                theme === "light" ? "dark" : "light"
-              } mode`}
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+              type="button"
             >
               {theme === "light" ? "Dark mode" : "Light mode"}
             </button>
@@ -116,76 +117,30 @@ function App() {
           <aside className="panel">
             <div className="panel-card">
               <div className="panel-title">Status</div>
-              <div
-                className={`status ${
-                  status === "win"
-                    ? "status--win"
-                    : status === "draw"
-                      ? "status--draw"
-                      : ""
-                }`}
-                role="status"
-                aria-live="polite"
-              >
-                {statusText}
-              </div>
+              <Status status={status} text={statusText} />
 
-              <div className="controls">
-                <button className="btn btn-primary" onClick={resetRound}>
-                  New round
-                </button>
-                <button className="btn btn-secondary" onClick={resetAll}>
-                  Reset score
-                </button>
-              </div>
+              <Controls onNewRound={resetRound} onResetScore={resetAll} />
 
               <div className="hint" aria-label="How to play">
                 Tap/click a square to place your mark. First to connect 3 wins.
+                {isLocked ? " Start a new round to play again." : ""}
               </div>
             </div>
 
             <div className="panel-card">
               <div className="panel-title">Score</div>
-              <dl className="score">
-                <div className="score-row">
-                  <dt className="chip chip-x">X</dt>
-                  <dd className="score-value">{score.X}</dd>
-                </div>
-                <div className="score-row">
-                  <dt className="chip chip-o">O</dt>
-                  <dd className="score-value">{score.O}</dd>
-                </div>
-                <div className="score-row">
-                  <dt className="chip chip-draw">Draws</dt>
-                  <dd className="score-value">{score.draws}</dd>
-                </div>
-              </dl>
+              <ScoreBoard score={score} />
             </div>
           </aside>
 
           <section className="board-wrap" aria-label="Game board">
             <div className="board-frame">
-              <div className="board" role="grid" aria-label="3 by 3 board">
-                {board.map((value, idx) => {
-                  const isWinning = winningLine?.includes(idx) ?? false;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      className={`square ${
-                        value ? "square--filled" : ""
-                      } ${isWinning ? "square--winning" : ""}`}
-                      onClick={() => handleSquareClick(idx)}
-                      role="gridcell"
-                      aria-label={`Square ${idx + 1}${value ? `, ${value}` : ""}`}
-                    >
-                      <span className={`mark mark-${value ?? "empty"}`}>
-                        {value ?? ""}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <Board
+                board={board}
+                winningLine={winningLine}
+                onSquareClick={handleSquareClick}
+                isLocked={isLocked}
+              />
 
               <footer className="board-footer">
                 <div className="legend">
@@ -200,7 +155,7 @@ function App() {
                 </div>
 
                 <div className="round-meta" aria-label="Round metadata">
-                  {status !== "in_progress" ? (
+                  {isLocked ? (
                     <span className="round-pill round-pill--done">
                       Round complete
                     </span>
