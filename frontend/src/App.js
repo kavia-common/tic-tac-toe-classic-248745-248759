@@ -6,6 +6,27 @@ import Controls from "./components/Controls";
 import ScoreBoard from "./components/ScoreBoard";
 import Status from "./components/Status";
 
+const SCORE_STORAGE_KEY = "ttt_score_v1";
+
+function safeParseScore(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof parsed.X === "number" &&
+      typeof parsed.O === "number" &&
+      typeof parsed.draws === "number"
+    ) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // PUBLIC_INTERFACE
 function App() {
   /**
@@ -20,26 +41,46 @@ function App() {
   /** @type {[("X"|"O"), Function]} */
   const [currentPlayer, setCurrentPlayer] = useState("X");
 
-  // Optional score across rounds
-  const [score, setScore] = useState({ X: 0, O: 0, draws: 0 });
+  /**
+   * Start/reset flow:
+   * - When `hasStarted` is false: board is locked and user sees "Start game".
+   * - After start: normal play.
+   */
+  const [hasStarted, setHasStarted] = useState(false);
+
+  // Cumulative score across rounds (persisted).
+  const [score, setScore] = useState(() => {
+    if (typeof window === "undefined") return { X: 0, O: 0, draws: 0 };
+    const stored = safeParseScore(window.localStorage.getItem(SCORE_STORAGE_KEY));
+    return stored ?? { X: 0, O: 0, draws: 0 };
+  });
 
   const evaluation = useMemo(() => evaluateBoard(board), [board]);
   const { status, winner, winningLine } = evaluation;
 
-  const isLocked = status !== "in_progress";
+  const isLocked = !hasStarted || status !== "in_progress";
 
   const statusText = useMemo(() => {
+    if (!hasStarted) return "Press Start to begin";
     if (status === "win") return `Winner: ${winner}`;
     if (status === "draw") return "Draw!";
     return `Current player: ${currentPlayer}`;
-  }, [status, winner, currentPlayer]);
+  }, [hasStarted, status, winner, currentPlayer]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  // Persist score.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SCORE_STORAGE_KEY, JSON.stringify(score));
+  }, [score]);
+
   // Update score when a round ends (winner or draw).
   useEffect(() => {
+    if (!hasStarted) return;
+
     if (status === "win" && winner) {
       setScore((prev) => ({ ...prev, [winner]: prev[winner] + 1 }));
     } else if (status === "draw") {
@@ -47,11 +88,16 @@ function App() {
     }
     // Intentionally only when the round becomes terminal:
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, winner]);
+  }, [status, winner, hasStarted]);
 
   // PUBLIC_INTERFACE
   const toggleTheme = () => {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
+  };
+
+  /** Starts the first round (or resumes after a full reset). */
+  const startGame = () => {
+    setHasStarted(true);
   };
 
   /**
@@ -73,18 +119,38 @@ function App() {
 
   /**
    * Resets the board for a new round. Score remains.
+   * If the game hasn't started yet, this behaves like Start.
    */
-  const resetRound = () => {
+  const newRound = () => {
+    if (!hasStarted) {
+      setHasStarted(true);
+    }
     setBoard(createEmptyBoard());
     setCurrentPlayer("X");
   };
 
   /**
-   * Resets board and score.
+   * Reset score (cumulative match) while keeping the current start state.
+   * Also starts a fresh round so the user gets immediate feedback.
+   */
+  const resetScore = () => {
+    setScore({ X: 0, O: 0, draws: 0 });
+    // also clear persisted value immediately
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(SCORE_STORAGE_KEY);
+    }
+    setBoard(createEmptyBoard());
+    setCurrentPlayer("X");
+    if (!hasStarted) setHasStarted(true);
+  };
+
+  /**
+   * Full reset (back to pre-start).
    */
   const resetAll = () => {
-    resetRound();
-    setScore({ X: 0, O: 0, draws: 0 });
+    setHasStarted(false);
+    setBoard(createEmptyBoard());
+    setCurrentPlayer("X");
   };
 
   return (
@@ -117,13 +183,23 @@ function App() {
           <aside className="panel">
             <div className="panel-card">
               <div className="panel-title">Status</div>
-              <Status status={status} text={statusText} />
+              <Status status={hasStarted ? status : "in_progress"} text={statusText} />
 
-              <Controls onNewRound={resetRound} onResetScore={resetAll} />
+              <Controls
+                hasStarted={hasStarted}
+                isRoundOver={hasStarted && status !== "in_progress"}
+                onStart={startGame}
+                onNewRound={newRound}
+                onResetScore={resetScore}
+                onResetAll={resetAll}
+              />
 
               <div className="hint" aria-label="How to play">
                 Tap/click a square to place your mark. First to connect 3 wins.
-                {isLocked ? " Start a new round to play again." : ""}
+                {!hasStarted ? " Press Start to begin." : ""}
+                {hasStarted && status !== "in_progress"
+                  ? " Start a new round to play again."
+                  : ""}
               </div>
             </div>
 
@@ -155,10 +231,10 @@ function App() {
                 </div>
 
                 <div className="round-meta" aria-label="Round metadata">
-                  {isLocked ? (
-                    <span className="round-pill round-pill--done">
-                      Round complete
-                    </span>
+                  {!hasStarted ? (
+                    <span className="round-pill">Ready</span>
+                  ) : status !== "in_progress" ? (
+                    <span className="round-pill round-pill--done">Round complete</span>
                   ) : (
                     <span className="round-pill">Turn: {currentPlayer}</span>
                   )}
