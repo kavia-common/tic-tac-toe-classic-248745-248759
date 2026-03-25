@@ -1,40 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import "./App.css";
-
-/**
- * Returns the winning line (indices) if a win exists, otherwise null.
- * @param {Array<"X"|"O"|null>} squares
- * @returns {number[] | null}
- */
-function calculateWinnerLine(squares) {
-  const lines = [
-    // rows
-    [0, 1, 2],
-    [3, 4, 5],
-    [6, 7, 8],
-    // cols
-    [0, 3, 6],
-    [1, 4, 7],
-    [2, 5, 8],
-    // diagonals
-    [0, 4, 8],
-    [2, 4, 6],
-  ];
-
-  for (const [a, b, c] of lines) {
-    const v = squares[a];
-    if (v && v === squares[b] && v === squares[c]) return [a, b, c];
-  }
-  return null;
-}
-
-/**
- * @param {Array<"X"|"O"|null>} squares
- * @returns {boolean}
- */
-function isBoardFull(squares) {
-  return squares.every((v) => v !== null);
-}
+import {
+  createEmptyBoard,
+  evaluateBoard,
+  getNextPlayer,
+} from "./gameRules";
 
 // PUBLIC_INTERFACE
 function App() {
@@ -44,21 +14,23 @@ function App() {
    */
   const [theme, setTheme] = useState("light");
 
-  const [squares, setSquares] = useState(() => Array(9).fill(null));
-  const [xIsNext, setXIsNext] = useState(true);
+  /** @type {[Array<"X"|"O"|null>, Function]} */
+  const [board, setBoard] = useState(() => createEmptyBoard());
+
+  /** @type {[("X"|"O"), Function]} */
+  const [currentPlayer, setCurrentPlayer] = useState("X");
 
   // Optional score across rounds
   const [score, setScore] = useState({ X: 0, O: 0, draws: 0 });
 
-  const winnerLine = useMemo(() => calculateWinnerLine(squares), [squares]);
-  const winner = winnerLine ? squares[winnerLine[0]] : null;
-  const isDraw = !winner && isBoardFull(squares);
+  const evaluation = useMemo(() => evaluateBoard(board), [board]);
+  const { status, winner, winningLine } = evaluation;
 
   const statusText = useMemo(() => {
-    if (winner) return `Winner: ${winner}`;
-    if (isDraw) return "Draw!";
-    return `Current player: ${xIsNext ? "X" : "O"}`;
-  }, [winner, isDraw, xIsNext]);
+    if (status === "win") return `Winner: ${winner}`;
+    if (status === "draw") return "Draw!";
+    return `Current player: ${currentPlayer}`;
+  }, [status, winner, currentPlayer]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -66,14 +38,14 @@ function App() {
 
   // Update score when a round ends (winner or draw).
   useEffect(() => {
-    if (winner) {
+    if (status === "win" && winner) {
       setScore((prev) => ({ ...prev, [winner]: prev[winner] + 1 }));
-    } else if (isDraw) {
+    } else if (status === "draw") {
       setScore((prev) => ({ ...prev, draws: prev.draws + 1 }));
     }
     // Intentionally only when the round becomes terminal:
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winner, isDraw]);
+  }, [status, winner]);
 
   // PUBLIC_INTERFACE
   const toggleTheme = () => {
@@ -85,23 +57,24 @@ function App() {
    * @param {number} idx
    */
   const handleSquareClick = (idx) => {
-    if (winner || isDraw) return;
-    if (squares[idx] !== null) return;
+    if (status !== "in_progress") return;
+    if (board[idx] !== null) return;
 
-    setSquares((prev) => {
+    setBoard((prev) => {
       const next = prev.slice();
-      next[idx] = xIsNext ? "X" : "O";
+      next[idx] = currentPlayer;
       return next;
     });
-    setXIsNext((v) => !v);
+
+    setCurrentPlayer((prev) => getNextPlayer(prev));
   };
 
   /**
    * Resets the board for a new round. Score remains.
    */
   const resetRound = () => {
-    setSquares(Array(9).fill(null));
-    setXIsNext(true);
+    setBoard(createEmptyBoard());
+    setCurrentPlayer("X");
   };
 
   /**
@@ -145,7 +118,11 @@ function App() {
               <div className="panel-title">Status</div>
               <div
                 className={`status ${
-                  winner ? "status--win" : isDraw ? "status--draw" : ""
+                  status === "win"
+                    ? "status--win"
+                    : status === "draw"
+                      ? "status--draw"
+                      : ""
                 }`}
                 role="status"
                 aria-live="polite"
@@ -189,8 +166,8 @@ function App() {
           <section className="board-wrap" aria-label="Game board">
             <div className="board-frame">
               <div className="board" role="grid" aria-label="3 by 3 board">
-                {squares.map((value, idx) => {
-                  const isWinning = winnerLine?.includes(idx) ?? false;
+                {board.map((value, idx) => {
+                  const isWinning = winningLine?.includes(idx) ?? false;
                   return (
                     <button
                       key={idx}
@@ -200,9 +177,7 @@ function App() {
                       } ${isWinning ? "square--winning" : ""}`}
                       onClick={() => handleSquareClick(idx)}
                       role="gridcell"
-                      aria-label={`Square ${idx + 1}${
-                        value ? `, ${value}` : ""
-                      }`}
+                      aria-label={`Square ${idx + 1}${value ? `, ${value}` : ""}`}
                     >
                       <span className={`mark mark-${value ?? "empty"}`}>
                         {value ?? ""}
@@ -225,14 +200,12 @@ function App() {
                 </div>
 
                 <div className="round-meta" aria-label="Round metadata">
-                  {winner || isDraw ? (
+                  {status !== "in_progress" ? (
                     <span className="round-pill round-pill--done">
                       Round complete
                     </span>
                   ) : (
-                    <span className="round-pill">
-                      Turn: {xIsNext ? "X" : "O"}
-                    </span>
+                    <span className="round-pill">Turn: {currentPlayer}</span>
                   )}
                 </div>
               </footer>
